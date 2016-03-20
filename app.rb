@@ -66,6 +66,7 @@ class RollRecord < ActiveRecord::Base
 end
 
 get '/characters' do
+    puts env['HTTP_X_SECONDLIFE_OWNER_NAME']
     @character = Character.where(:user_name => env['HTTP_X_SECONDLIFE_OWNER_NAME'])
     if @character.empty?
         status 404
