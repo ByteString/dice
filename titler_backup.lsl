@@ -5,7 +5,7 @@
 /////////////////////////////
 
 //Globals
-string gDataURL = "https://obscure-river-85151.herokuapp.com";//This is the location of the web application
+string gDataURL = "http://cosmos-danube-3000.codio.io/";//This is the location of the web application
 //The DataURL does not have a final "/", requiring relative URLs to be used when making requests.
 
 string gDataHandles;//This is a JSON string used to register HTTP request events and track their purpose
