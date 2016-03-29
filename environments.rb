@@ -1,5 +1,5 @@
 configure :development do
-    set :database, 'sqlite:///dice.sqlite3'
+    set :database, 'sqlite3:dice.sqlite3'
  set :show_exceptions, true
 end
 

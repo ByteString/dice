@@ -5,7 +5,7 @@
 /////////////////////////////
 
 //Globals
-string gDataURL = "https://obscure-river-85151.herokuapp.com/";//This is the location of the web application
+string gDataURL = "https://obscure-river-85151.herokuapp.com";//This is the location of the web application
 //The DataURL does not have a final "/", requiring relative URLs to be used when making requests.
 
 string gDataHandles;//This is a JSON string used to register HTTP request events and track their purpose
@@ -115,6 +115,7 @@ populate_statistics(string body){
     update_defence();
     gStatisticsConfigured = 1;
     update_display_text();
+    llListen(gOwnerCommandChannel, "", "", "");
     llOwnerSay("Statistics loaded: " + gStatistics);//DEBUG
     //llOwnerSay("Statistics loaded: " + llDumpList2String(gStatisticsDisplay,","));//DEBUG
 }
@@ -138,22 +139,23 @@ announce_roll(string body){
     string temp = llGetObjectName();
     llSetObjectName(">");
     llOwnerSay(roll_note);
-    llSay(0, "Debug: " + roll_note);
+    llSay(gRollAnnounceChannel,body);
     llSetObjectName(temp);
     llSleep(1.0);
 }
 
 default
 {
+    on_rez(integer _start_param){llResetScript();}
     changed(integer _change){if (_change & CHANGED_INVENTORY){llResetScript();}}
     
     state_entry(){
         gOwner = llGetOwner();
         gOwnerName = llKey2Name(gOwner);
+        llListen(gRollAnnounceChannel,"","","");
         
-        gOwnerCommandChannel = 10;//DEV
-        //gOwnerCommandChannel = generate_channel_from(llGetOwner());//PROD
-        llListen(gOwnerCommandChannel, "", "", "");
+        //gOwnerCommandChannel = 10;//DEV
+        gOwnerCommandChannel = generate_channel_from(llGetOwner());//PROD
         
         update_display_text();
         list params = [HTTP_METHOD,"GET"];
@@ -161,9 +163,9 @@ default
     }
 
     touch_start(integer _total_number){
-        //if(llDetectedKey(0) == gOwner){llResetScript();}
-        list params = [HTTP_METHOD,"GET"];
-        make_request("/characters/" + llEscapeURL(gDisplayName) + "/roll/damage/melee", params, "", "roll");
+        if(llDetectedKey(0) == gOwner){llResetScript();}
+        //list params = [HTTP_METHOD,"GET"];
+        //make_request("/characters/" + llEscapeURL(gDisplayName) + "/roll/damage/melee", params, "", "roll");
     }
     
     http_response(key _request_id, integer _status, list _metadata, string _body){
@@ -198,6 +200,15 @@ default
                 announce_roll(_body);
             } 
         }
+        if(identifier == "roll_verify"){
+            if(_status != 200){
+                llOwnerSay("Error: Please contact an admin.");
+            } else {
+                //TODO: Add verification queue and confirm match.
+                string roll_note;if(is_valid_key?(_body,"note")){roll_note = gJsonValue;}
+                llOwnerSay(roll_note);                
+            }
+        }
     }
     
     listen(integer _channel, string _name, key _id, string _message){
@@ -208,7 +219,7 @@ default
             list params = [HTTP_METHOD,"GET"];
             make_request("/characters/" + llEscapeURL(gDisplayName), params, "", "statistics");
         } else if(_channel == gOwnerCommandChannel){
-            //if(llGetOwnerKey(_id) == gOwner){
+            if(llGetOwnerKey(_id) == gOwner){
                 if(llListFindList(gStatisticsDisplay,[_message]) != -1){
                     list params = [HTTP_METHOD,"GET"];
                     make_request("/characters/" + llEscapeURL(gDisplayName) + "/roll/" + _message, params, "", "roll");
@@ -238,7 +249,15 @@ default
                     if(_message == "-armor"){gArmor -= 1;update_defence();update_display_text();}
                     if(_message == "reset"){llResetScript();}
                 }
-            //} else { llOwnerSay("Someone else is using your private HUD channel. Advise an admin.");}
+            } else { llOwnerSay("Someone else is using your private HUD channel. Advise an admin.");}
+        } else if (_channel == gRollAnnounceChannel){
+                        //Another HUD has declared a roll. We need to verify before announcing.
+                        string roll = _message;
+                        integer roll_id;if(is_valid_key?(roll,"id")){roll_id = (integer)gJsonValue;}
+                        llOwnerSay("Looking up roll");
+                        list params = [HTTP_METHOD,"GET"];
+                        make_request("/roll_records/" + (string)roll_id,\
+                        params, "", "roll_verify");
         }
     }
     timer(){

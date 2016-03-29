@@ -3,6 +3,8 @@ require 'sinatra'
 require 'sinatra/activerecord'
 require 'json'
 require './environments'
+
+set :environment, :development
 set :bind, '0.0.0.0'
 set :port, '3000'
 set :logging, true
