@@ -1,3 +1,6 @@
+/*This HUD presently uses a single prim behind hovertext as a UI. This is error prone and inconsistent between monitors.
+Ultimately this needs to be rewritten to use a HUD with individual buttons on individual prims or prim faces.*/
+
 list gOptions = ["reset", "armor", "hp", "stat roll", "magic", "ranged", "melee"];
 integer gToggleView;
 integer gOwnerCommandChannel;
