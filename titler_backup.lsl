@@ -10,11 +10,8 @@ string gNotecard = "Characters";
 string gNotecardData;
 integer gNotecardLine;
 
-string gDataURL = "http://cosmos-danube-3000.codio.io/";//This is the location of the web application
-//The DataURL does not have a final "/", requiring relative URLs to be used when making requests.
-
-string gDataHandles;//This is a JSON string used to register HTTP request events and track their purpose
-//This allows a "character statistics" request to be correlated with the response for better processing.
+string gDataHandles;//This is a JSON string used to register dataserver events and track their purpose
+//It is leftover from more complex web server interaction and may yet be removed.
 
 string gJsonValue;//This value is used by the is_valid_key? function. Calling the function will populate
 //this value based on the provided key and JSON object
@@ -28,7 +25,7 @@ integer gOwnerCommandChannel;//This is the channel the owner will issue commands
 integer gCharacterSelectChannel = 100;//This is the channel the character select dialog will submit to.
 integer gCharacterSelectHandle;//This handle closes the character select dialog after timeout or selection.
 
-integer gRollAnnounceChannel = -52723;//This is a constant channel shared by all HUDs to announce die rolls. A roll_id will be posted here and independently verified by each HUD.
+integer gRollAnnounceChannel = -52723;//This is a constant channel shared by all HUDs to announce die rolls.
 
 vector gColor = <1.0,1.0,1.0>;//Hovertext color. TODO: Configurable.
 
@@ -115,12 +112,10 @@ populate_statistics(string body){
     for(;i < length;i++){
         string statistic = llList2String(statistics_list,i);
         string statistic_name;if(is_valid_key?(statistic,"name")){statistic_name = gJsonValue;}
-        llOwnerSay("Processing " + statistic_name);
         string statistic_value;if(is_valid_key?(statistic,"value")){statistic_value = gJsonValue;}
         gStatistics = llJsonSetValue(gStatistics,[statistic_name], statistic_value);
         gStatisticsDisplay += statistic_name;
     }
-    llOwnerSay("Statistics are now " + gStatistics);
     initialize_hitpoints();
     update_defence();
     gStatisticsConfigured = 1;
@@ -155,9 +150,9 @@ statistic_roll(string statistic_name){
     integer statistic_value;if(is_valid_key?(gStatistics,statistic_name)){statistic_value = (integer)gJsonValue;}
     integer roll = roll_d20();
     integer total_roll = roll + statistic_value;
-    string roll_announcement = gOwnerName + " rolled " + number_with_indefinite_article(total_roll) + " (Rolled " + (string)roll + \
+    string roll_announcement = gDisplayName + " rolled " + number_with_indefinite_article(total_roll) + " (Rolled " + (string)roll + \
     " + " + (string)statistic_value + " " + statistic_name + ")";
-    llOwnerSay(roll_announcement);    
+    announce_roll(roll_announcement);    
 }
 damage_roll(string damage_type, string chance_to_hit_modifier_name, string damage_modifier_name){   
     integer chance_to_hit_modifier_value;
@@ -168,10 +163,10 @@ damage_roll(string damage_type, string chance_to_hit_modifier_name, string damag
     integer roll = roll_d20();
     integer total_roll = roll + chance_to_hit_modifier_value;
     
-    string roll_announcement = gOwnerName + " rolled " + number_with_indefinite_article(total_roll) + " (Rolled " + (string)roll + \
+    string roll_announcement = gDisplayName + " rolled " + number_with_indefinite_article(total_roll) + " (Rolled " + (string)roll + \
     " + " + (string)chance_to_hit_modifier_value + " " + chance_to_hit_modifier_name + " for " + (string)damage_modifier_value + " " + \
     damage_type + " damage)";
-    llOwnerSay(roll_announcement);
+    announce_roll(roll_announcement);
 }
 melee_roll(){
     string chance_to_hit_modifier_name = "swiftness";
@@ -188,18 +183,10 @@ magic_roll(){
     string damage_modifier_name = "intellect";
     damage_roll("magic", chance_to_hit_modifier_name, damage_modifier_name);
 }
-    
-announce_roll(string body){
-    string roll_id; if(is_valid_key?(body,"id")){roll_id = gJsonValue;}
-    string roll_note; if(is_valid_key?(body,"note")){roll_note = gJsonValue;}
-    string temp = llGetObjectName();
-    llSetObjectName(">");
-    llOwnerSay(roll_note);
-    llSay(gRollAnnounceChannel,body);
-    llSetObjectName(temp);
-    llSleep(1.0);
+announce_roll(string announcement){
+    //TODO: Add verification mechanism.
+    llSay(0,announcement);
 }
-
 default
 {
     on_rez(integer _start_param){llResetScript();}
@@ -219,14 +206,13 @@ default
 
     touch_start(integer _total_number){if(llDetectedKey(0) == gOwner){llResetScript();}}
     dataserver(key _request_id, string _data){
-        //llOwnerSay("DataServer Response: " + _data);
         string identifier;if(is_valid_key?(gDataHandles,_request_id)){identifier = gJsonValue;}
         if(identifier == "load_characters"){
             if (_data != EOF) {    // not at the end of the notecard
                 gNotecardData += _data;
                 ++gNotecardLine;                // increase line count
                 request_data(gNotecardLine,"load_characters");
-            } else {llOwnerSay("Data: " + gNotecardData);select_character(gNotecardData);}
+            } else {select_character(gNotecardData);}
         }
     }
     
@@ -257,7 +243,12 @@ default
                             gStatisticsDisplay, gOwnerCommandChannel);
                     }
                     if(_message == "+hp"){gHitpoints += 1;update_display_text();}
-                    if(_message == "-hp"){gHitpoints -= 1;update_display_text();}
+                    if(_message == "-hp"){
+                        if(gHitpoints > 0){
+                            gHitpoints -= 1;
+                            update_display_text();
+                        }
+                    }
                     if(_message == "+armor"){gArmor += 1;update_defence();update_display_text();}
                     if(_message == "-armor"){gArmor -= 1;update_defence();update_display_text();}
                     if(_message == "reset"){llResetScript();}
@@ -265,12 +256,7 @@ default
             } else { llOwnerSay("Someone else is using your private HUD channel. Advise an admin.");}
         } else if (_channel == gRollAnnounceChannel){
                         //Another HUD has declared a roll. We need to verify before announcing.
-                        string roll = _message;
-                        integer roll_id;if(is_valid_key?(roll,"id")){roll_id = (integer)gJsonValue;}
-                        llOwnerSay("Looking up roll");
-                        list params = [HTTP_METHOD,"GET"];
-                        //make_request("/roll_records/" + (string)roll_id,\
-                        //params, "", "roll_verify");
+;
         }
     }
     timer(){
