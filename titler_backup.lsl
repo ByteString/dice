@@ -5,6 +5,11 @@
 /////////////////////////////
 
 //Globals
+
+string gNotecard = "Characters";
+string gNotecardData;
+integer gNotecardLine;
+
 string gDataURL = "http://cosmos-danube-3000.codio.io/";//This is the location of the web application
 //The DataURL does not have a final "/", requiring relative URLs to be used when making requests.
 
@@ -26,6 +31,8 @@ integer gCharacterSelectHandle;//This handle closes the character select dialog 
 integer gRollAnnounceChannel = -52723;//This is a constant channel shared by all HUDs to announce die rolls. A roll_id will be posted here and independently verified by each HUD.
 
 vector gColor = <1.0,1.0,1.0>;//Hovertext color. TODO: Configurable.
+
+string gCharacters = "";//All characters are stored here.
 string gDisplayName = "";//Character name, populated from database.
 string gStatistics;//Full statistics are stored here in a JSON string.
 list gStatisticsDisplay;//This is a list of statistics names for internal use.
@@ -63,9 +70,9 @@ update_display_text(){
     }
     llSetText( displayText, gColor, 1.0);
 }
-make_request(string path, list options, string body, string identifier){
+request_data(integer line, string identifier){
     /*This function handles the registration of data handles for HTTP requests*/
-    key dataHandle = llHTTPRequest(gDataURL + path, options, body);
+    key dataHandle = llGetNotecardLine(gNotecard,line);
     gDataHandles = llJsonSetValue(gDataHandles,[dataHandle], identifier);
 }
 select_character(string body){
@@ -77,13 +84,13 @@ select_character(string body){
     for(;i < length;i++){
         string json_character = llList2String(characters, i);
         string display_name;
-        if(is_valid_key?(json_character,"display_name")){
+        if(is_valid_key?(json_character,"Name")){
             display_name = gJsonValue;
             characters = llListReplaceList(characters, [display_name], i, i);
-            //llOwnerSay(llDumpList2String(characters,","));//DEBUG
-            //TODO: Route debug through central function
+            llJsonSetValue(gCharacters,[display_name],json_character);
         } else {
             llOwnerSay("Invalid character data. Please contact an admin.");
+llOwnerSay(gCharacters);
             state fatal_error;
         }   
     }
@@ -116,24 +123,22 @@ populate_statistics(string body){
     gStatisticsConfigured = 1;
     update_display_text();
     llListen(gOwnerCommandChannel, "", "", "");
-    llOwnerSay("Statistics loaded: " + gStatistics);//DEBUG
-    //llOwnerSay("Statistics loaded: " + llDumpList2String(gStatisticsDisplay,","));//DEBUG
 }
-initialize_hitpoints(){//This function is implementation dependent. TODO: Move to server.
+initialize_hitpoints(){
     integer vigor;if(is_valid_key?(gStatistics,"vigor")){vigor = (integer)gJsonValue;}
     integer toughness;if(is_valid_key?(gStatistics,"toughness")){toughness = (integer)gJsonValue;}
     gHitpoints = vigor + toughness;
     gMaxHitpoints = gHitpoints;
     }
-update_defence(){//This function is implementation dependent. TODO: Move to server.
+update_defence(){
     integer swiftness;if(is_valid_key?(gStatistics,"swiftness")){swiftness = (integer)gJsonValue;}
     integer toughness;if(is_valid_key?(gStatistics,"toughness")){toughness = (integer)gJsonValue;}
     gDefence = swiftness + toughness + gArmor;
     }
     
 announce_roll(string body){
-    //{"id":8,"roll":17,"modifier_value":10,"modifier_type":"valor",
-    //"note":"Byte rolled a 27 (Rolled 17 + 10 valor)","character_id":1}
+    //{"id":8,"roll":17,"modifier_value":10,"modifier_type":"vigor",
+    //"note":"Byte rolled a 27 (Rolled 17 + 10 vigor)","character_id":1}
     string roll_id; if(is_valid_key?(body,"id")){roll_id = gJsonValue;}
     string roll_note; if(is_valid_key?(body,"note")){roll_note = gJsonValue;}
     string temp = llGetObjectName();
@@ -147,27 +152,32 @@ announce_roll(string body){
 default
 {
     on_rez(integer _start_param){llResetScript();}
-    changed(integer _change){if (_change & CHANGED_INVENTORY){llResetScript();}}
-    
+    changed(integer _change){if (_change & CHANGED_INVENTORY){llResetScript();}}  
     state_entry(){
         gOwner = llGetOwner();
         gOwnerName = llKey2Name(gOwner);
         llListen(gRollAnnounceChannel,"","","");
         
-        //gOwnerCommandChannel = 10;//DEV
         gOwnerCommandChannel = generate_channel_from(llGetOwner());//PROD
         
         update_display_text();
         list params = [HTTP_METHOD,"GET"];
-        make_request("/characters",params,"","characters");
+        request_data(gNotecardLine,"load_characters");
     }
 
-    touch_start(integer _total_number){
-        if(llDetectedKey(0) == gOwner){llResetScript();}
-        //list params = [HTTP_METHOD,"GET"];
-        //make_request("/characters/" + llEscapeURL(gDisplayName) + "/roll/damage/melee", params, "", "roll");
+    touch_start(integer _total_number){if(llDetectedKey(0) == gOwner){llResetScript();}}
+    dataserver(key _request_id, string _data){
+        //llOwnerSay("DataServer Response: " + _data);
+        string identifier;if(is_valid_key?(gDataHandles,_request_id)){identifier = gJsonValue;}
+        if(identifier == "load_characters"){
+            if (_data != EOF) {    // not at the end of the notecard
+                gNotecardData += _data;
+                ++gNotecardLine;                // increase line count
+                request_data(gNotecardLine,"load_characters");
+            } else {llOwnerSay("Data: " + gNotecardData);select_character(gNotecardData);}
+        }
     }
-    
+     
     http_response(key _request_id, integer _status, list _metadata, string _body){
         //Body is received with id
         //List of registered ids is checked for event type
@@ -175,9 +185,6 @@ default
         string identifier;
         
         if(is_valid_key?(gDataHandles,_request_id)){identifier = gJsonValue;}
-        
-        //llOwnerSay(identifier);//DEBUG
-        //llOwnerSay(_body);//DEBUG
         
         if(identifier == "characters"){
             if(_status == 404){
@@ -190,7 +197,7 @@ default
             if(_status != 200){
                 llOwnerSay("Error: Please contact an admin.");
             } else {
-                populate_statistics(_body);
+                
             } 
         }
         if(identifier == "roll"){
@@ -216,28 +223,28 @@ default
             llListenRemove(gCharacterSelectHandle);
             llSetTimerEvent(0.0);
             set_display_name(_message);
-            list params = [HTTP_METHOD,"GET"];
-            make_request("/characters/" + llEscapeURL(gDisplayName), params, "", "statistics");
+            string character;if(is_valid_key?(gCharacters,_message)){character = gJsonValue;}
+            populate_statistics(character);
         } else if(_channel == gOwnerCommandChannel){
             if(llGetOwnerKey(_id) == gOwner){
                 if(llListFindList(gStatisticsDisplay,[_message]) != -1){
                     list params = [HTTP_METHOD,"GET"];
-                    make_request("/characters/" + llEscapeURL(gDisplayName) + "/roll/" + _message, params, "", "roll");
+                    //make_request("/characters/" + llEscapeURL(gDisplayName) + "/roll/" + _message, params, "", "roll");
                 } else {
                     if(_message == "melee"){
                         list params = [HTTP_METHOD,"GET"];
-                        make_request("/characters/" + llEscapeURL(gDisplayName)\
-                        + "/roll/damage/melee", params, "", "roll");
+                        //make_request("/characters/" + llEscapeURL(gDisplayName)\
+                        //+ "/roll/damage/melee", params, "", "roll");
                     }
                     if(_message == "ranged"){
                         list params = [HTTP_METHOD,"GET"];
-                        make_request("/characters/" + llEscapeURL(gDisplayName)\
-                        + "/roll/damage/ranged", params, "", "roll");
+                        //make_request("/characters/" + llEscapeURL(gDisplayName)\
+                        //+ "/roll/damage/ranged", params, "", "roll");
                     }
                     if(_message == "magic"){
                         list params = [HTTP_METHOD,"GET"];
-                        make_request("/characters/" + llEscapeURL(gDisplayName)\
-                        + "/roll/damage/magic", params, "", "roll");
+                        //make_request("/characters/" + llEscapeURL(gDisplayName)\
+                        //+ "/roll/damage/magic", params, "", "roll");
                     }
                     if(_message == "stat roll"){
                             llDialog(gOwner, "Select a statistic", \
@@ -256,8 +263,8 @@ default
                         integer roll_id;if(is_valid_key?(roll,"id")){roll_id = (integer)gJsonValue;}
                         llOwnerSay("Looking up roll");
                         list params = [HTTP_METHOD,"GET"];
-                        make_request("/roll_records/" + (string)roll_id,\
-                        params, "", "roll_verify");
+                        //make_request("/roll_records/" + (string)roll_id,\
+                        //params, "", "roll_verify");
         }
     }
     timer(){
@@ -267,59 +274,6 @@ default
 }
 
 state fatal_error{
-    state_entry(){
-        llOwnerSay("Fatal Error: Click titler to reset.");
-    }
-    touch_start(integer _numDetected){
-        llResetScript();
-    }
+    state_entry(){llOwnerSay("Fatal Error: Click titler to reset.");}
+    touch_start(integer _numDetected){llResetScript();}
 }
-/*{  
-   "id":1,
-   "user_name":"Byte String",
-   "display_name":"Byte",
-   "created_at":"2016-03-18T21:39:09.223Z",
-   "updated_at":"2016-03-18T21:39:09.223Z",
-   "statistics":[  
-      {  
-         "id":1,
-         "name":"valor",
-         "value":10,
-         "character_id":1,
-         "created_at":"2016-03-18T21:39:09.252Z",
-         "updated_at":"2016-03-18T21:39:09.252Z"
-      },
-      {  
-         "id":2,
-         "name":"swiftness",
-         "value":10,
-         "character_id":1,
-         "created_at":"2016-03-18T21:39:09.259Z",
-         "updated_at":"2016-03-18T21:39:09.259Z"
-      },
-      {  
-         "id":3,
-         "name":"toughness",
-         "value":10,
-         "character_id":1,
-         "created_at":"2016-03-18T21:39:09.268Z",
-         "updated_at":"2016-03-18T21:39:09.268Z"
-      },
-      {  
-         "id":4,
-         "name":"intellect",
-         "value":10,
-         "character_id":1,
-         "created_at":"2016-03-18T21:39:09.275Z",
-         "updated_at":"2016-03-18T21:39:09.275Z"
-      },
-      {  
-         "id":5,
-         "name":"cunning",
-         "value":10,
-         "character_id":1,
-         "created_at":"2016-03-18T21:39:09.282Z",
-         "updated_at":"2016-03-18T21:39:09.282Z"
-      }
-   ]
-}*/
