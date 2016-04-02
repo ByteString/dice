@@ -1,40 +1,35 @@
-/*This HUD presently uses a single prim behind hovertext as a UI. This is error prone and inconsistent between monitors.
-Ultimately this needs to be rewritten to use a HUD with individual buttons on individual prims or prim faces.*/
+list gLinkAndFace = [23,27,24,26,21,13,17,14,16,11];
+list gOptions = ["melee", "ranged", "magic", "stat roll", "hp", "armor", "reset"];
 
-list gOptions = ["reset", "armor", "hp", "stat roll", "magic", "ranged", "melee"];
-integer gToggleView;
 integer gOwnerCommandChannel;
-
 integer generate_channel_from(string text){
     /*This function allows a reproducible method of finding a channel based on a user's key*/
     return  ( -2 * (integer)("0x"+llGetSubString(text,-5,-1)) )-235180;
 }
+
 default
 {
-    on_rez(integer _start_param){llResetScript();}
-    changed(integer _change){if (_change & CHANGED_INVENTORY){llResetScript();}}
-    state_entry()
-    {
-        gOwnerCommandChannel = generate_channel_from(llGetOwner());//PROD
-        llSetText("Melee\nRanged\nMagic\nStat Roll\n- HP +\n- Armor +\nReset",<1.0,1.0,1.0>,1.0);
+    state_entry(){
+        gOwnerCommandChannel = generate_channel_from(llGetOwner());
     }
-
-    touch_start(integer _num_detected)
+    
+    touch_start(integer total_number)
     {
-        if (llDetectedLinkNumber(0) != LINK_ROOT){
+        integer linkAndFace = (integer)((string)llDetectedLinkNumber(0) + (string)llDetectedTouchFace(0));
+        integer optionNumber = llListFindList(gLinkAndFace, [linkAndFace]);
+        string option = llList2String(gOptions,optionNumber);
+        
+        if(option == "hp" || option == "armor"){
             vector  touchST   = llDetectedTouchST(0);
-            integer selectionNumber = (integer)(touchST.y * 10.0);
-            string option = llList2String(gOptions,selectionNumber);
-            if (option == "armor" || option == "hp"){
-                string direction;
-                if( (integer)(touchST.x * 10) > 4){
-                    direction = "+";
-                } else { direction = "-";}
-                option = direction + option;
-            }
-            llSay(gOwnerCommandChannel,option);
-        } else {
-            llSetLinkPrimitiveParams(LINK_ALL_CHILDREN, [PRIM_COLOR, ALL_SIDES, <0.0,1.0,0.0>,gToggleView = !gToggleView]);
+            llOwnerSay((string)touchST);
+            string direction;
+            if( (integer)(touchST.y * 10) > 4){
+                direction = "+";
+            } else { direction = "-";}
+            option = direction + option;
+        }
+        if(option != ""){
+            llSay(gOwnerCommandChannel, option);
         }
     }
 }
