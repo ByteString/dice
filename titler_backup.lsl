@@ -75,6 +75,8 @@ request_data(integer line, string identifier){
     key dataHandle = llGetNotecardLine(gNotecard,line);
     gDataHandles = llJsonSetValue(gDataHandles,[dataHandle], identifier);
 }
+ 
+//Character Selection Functions
 select_character(string body){
     /*This function parses a character list from a JSON web response, allowing the user to
     select the character they wish to load*/
@@ -84,13 +86,12 @@ select_character(string body){
     for(;i < length;i++){
         string json_character = llList2String(characters, i);
         string display_name;
-        if(is_valid_key?(json_character,"Name")){
+        if(is_valid_key?(json_character,"name")){
             display_name = gJsonValue;
             characters = llListReplaceList(characters, [display_name], i, i);
-            llJsonSetValue(gCharacters,[display_name],json_character);
+            gCharacters = llJsonSetValue(gCharacters,[display_name],json_character);
         } else {
             llOwnerSay("Invalid character data. Please contact an admin.");
-llOwnerSay(gCharacters);
             state fatal_error;
         }   
     }
@@ -114,10 +115,12 @@ populate_statistics(string body){
     for(;i < length;i++){
         string statistic = llList2String(statistics_list,i);
         string statistic_name;if(is_valid_key?(statistic,"name")){statistic_name = gJsonValue;}
+        llOwnerSay("Processing " + statistic_name);
         string statistic_value;if(is_valid_key?(statistic,"value")){statistic_value = gJsonValue;}
         gStatistics = llJsonSetValue(gStatistics,[statistic_name], statistic_value);
         gStatisticsDisplay += statistic_name;
     }
+    llOwnerSay("Statistics are now " + gStatistics);
     initialize_hitpoints();
     update_defence();
     gStatisticsConfigured = 1;
@@ -136,9 +139,57 @@ update_defence(){
     gDefence = swiftness + toughness + gArmor;
     }
     
+//Dice Roll Functions
+integer roll_d20(){
+    return (integer)llFrand(21);
+}
+string number_with_indefinite_article(integer number){
+    if(number == 8 || number == 18 || number == 11){
+        return "an " + (string)number;
+    } else {
+        return "a " + (string)number;
+    }
+}
+    
+statistic_roll(string statistic_name){
+    integer statistic_value;if(is_valid_key?(gStatistics,statistic_name)){statistic_value = (integer)gJsonValue;}
+    integer roll = roll_d20();
+    integer total_roll = roll + statistic_value;
+    string roll_announcement = gOwnerName + " rolled " + number_with_indefinite_article(total_roll) + " (Rolled " + (string)roll + \
+    " + " + (string)statistic_value + " " + statistic_name + ")";
+    llOwnerSay(roll_announcement);    
+}
+damage_roll(string damage_type, string chance_to_hit_modifier_name, string damage_modifier_name){   
+    integer chance_to_hit_modifier_value;
+    if(is_valid_key?(gStatistics,chance_to_hit_modifier_name)){chance_to_hit_modifier_value = (integer)gJsonValue;}
+    integer damage_modifier_value;
+    if(is_valid_key?(gStatistics,damage_modifier_name)){damage_modifier_value = (integer)gJsonValue;}
+    
+    integer roll = roll_d20();
+    integer total_roll = roll + chance_to_hit_modifier_value;
+    
+    string roll_announcement = gOwnerName + " rolled " + number_with_indefinite_article(total_roll) + " (Rolled " + (string)roll + \
+    " + " + (string)chance_to_hit_modifier_value + " " + chance_to_hit_modifier_name + " for " + (string)damage_modifier_value + " " + \
+    damage_type + " damage)";
+    llOwnerSay(roll_announcement);
+}
+melee_roll(){
+    string chance_to_hit_modifier_name = "swiftness";
+    string damage_modifier_name = "vigor";
+    damage_roll("melee", chance_to_hit_modifier_name, damage_modifier_name);
+}
+ranged_roll(){
+    string chance_to_hit_modifier_name = "swiftness";
+    string damage_modifier_name = "cunning";
+    damage_roll("ranged", chance_to_hit_modifier_name, damage_modifier_name);
+}
+magic_roll(){
+    string chance_to_hit_modifier_name = "intellect";
+    string damage_modifier_name = "intellect";
+    damage_roll("magic", chance_to_hit_modifier_name, damage_modifier_name);
+}
+    
 announce_roll(string body){
-    //{"id":8,"roll":17,"modifier_value":10,"modifier_type":"vigor",
-    //"note":"Byte rolled a 27 (Rolled 17 + 10 vigor)","character_id":1}
     string roll_id; if(is_valid_key?(body,"id")){roll_id = gJsonValue;}
     string roll_note; if(is_valid_key?(body,"note")){roll_note = gJsonValue;}
     string temp = llGetObjectName();
@@ -162,6 +213,7 @@ default
         
         update_display_text();
         list params = [HTTP_METHOD,"GET"];
+        llOwnerSay("Loading notecard...");
         request_data(gNotecardLine,"load_characters");
     }
 
@@ -177,46 +229,6 @@ default
             } else {llOwnerSay("Data: " + gNotecardData);select_character(gNotecardData);}
         }
     }
-     
-    http_response(key _request_id, integer _status, list _metadata, string _body){
-        //Body is received with id
-        //List of registered ids is checked for event type
-        //Event type retrieved, body handled based on event type. 
-        string identifier;
-        
-        if(is_valid_key?(gDataHandles,_request_id)){identifier = gJsonValue;}
-        
-        if(identifier == "characters"){
-            if(_status == 404){
-                llOwnerSay("Character select failed: No characters");
-            } else {
-                select_character(_body);
-            }
-        }
-        if(identifier == "statistics"){
-            if(_status != 200){
-                llOwnerSay("Error: Please contact an admin.");
-            } else {
-                
-            } 
-        }
-        if(identifier == "roll"){
-            if(_status != 200){
-                llOwnerSay("Error: Please contact an admin.");
-            } else {
-                announce_roll(_body);
-            } 
-        }
-        if(identifier == "roll_verify"){
-            if(_status != 200){
-                llOwnerSay("Error: Please contact an admin.");
-            } else {
-                //TODO: Add verification queue and confirm match.
-                string roll_note;if(is_valid_key?(_body,"note")){roll_note = gJsonValue;}
-                llOwnerSay(roll_note);                
-            }
-        }
-    }
     
     listen(integer _channel, string _name, key _id, string _message){
         if(_channel == gCharacterSelectChannel){
@@ -229,22 +241,16 @@ default
             if(llGetOwnerKey(_id) == gOwner){
                 if(llListFindList(gStatisticsDisplay,[_message]) != -1){
                     list params = [HTTP_METHOD,"GET"];
-                    //make_request("/characters/" + llEscapeURL(gDisplayName) + "/roll/" + _message, params, "", "roll");
+                    statistic_roll(_message);
                 } else {
                     if(_message == "melee"){
-                        list params = [HTTP_METHOD,"GET"];
-                        //make_request("/characters/" + llEscapeURL(gDisplayName)\
-                        //+ "/roll/damage/melee", params, "", "roll");
+                        melee_roll();
                     }
                     if(_message == "ranged"){
-                        list params = [HTTP_METHOD,"GET"];
-                        //make_request("/characters/" + llEscapeURL(gDisplayName)\
-                        //+ "/roll/damage/ranged", params, "", "roll");
+                        ranged_roll();
                     }
                     if(_message == "magic"){
-                        list params = [HTTP_METHOD,"GET"];
-                        //make_request("/characters/" + llEscapeURL(gDisplayName)\
-                        //+ "/roll/damage/magic", params, "", "roll");
+                        magic_roll();
                     }
                     if(_message == "stat roll"){
                             llDialog(gOwner, "Select a statistic", \
