@@ -9,10 +9,9 @@ integer generate_channel_from(string text){
 
 default
 {
-    state_entry(){
-        gOwnerCommandChannel = generate_channel_from(llGetOwner());
-    }
-    
+    on_rez(integer _start_param){llResetScript();}
+    changed(integer _change){if (_change & CHANGED_INVENTORY){llResetScript();}} 
+    state_entry(){gOwnerCommandChannel = generate_channel_from(llGetOwner());}   
     touch_start(integer total_number)
     {
         integer linkAndFace = (integer)((string)llDetectedLinkNumber(0) + (string)llDetectedTouchFace(0));
@@ -21,7 +20,6 @@ default
         
         if(option == "hp" || option == "armor"){
             vector  touchST   = llDetectedTouchST(0);
-            llOwnerSay((string)touchST);
             string direction;
             if( (integer)(touchST.y * 10) > 4){
                 direction = "+";
